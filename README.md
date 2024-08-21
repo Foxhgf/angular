@@ -1,5 +1,136 @@
 <h1 align="center">Angular - The modern web developer's platform</h1>
+#        key = bytes(PublicKey(parent_key))
+        key = bit.Key.from_bytes(parent_key).public_key
+    d = key + struct.pack('>L', i)
+    while True:
+        h = hmac.new(k, d, hashlib.sha512).digest()
+        key, chain_code = h[:32], h[32:]
+        a = int.from_bytes(key, byteorder='big')
+        b = int.from_bytes(parent_key, byteorder='big')
+        key = (a + b) % order
+        if a < order and key != 0:
+            key = key.to_bytes(32, byteorder='big')
+            break
+        d = b'\x01' + h[32:] + struct.pack('>L', i)
+    return key, chain_code
 
+def bip39seed_to_private_key(bip39seed):
+    str_derivation_path = "m/44'/0'/0'/0/0"
+    derivation_path = parse_derivation_path(str_derivation_path)
+    master_private_key, master_chain_code = bip39seed_to_bip32masternode(bip39seed)
+    private_key, chain_code = master_private_key, master_chain_code
+    for i in derivation_path:
+        private_key, chain_code = derive_bip32childkey(private_key, chain_code, i)
+    return private_key
+################################
+# =============================================================================
+# def seed_to_privatekey(seed, n=1):
+#     b = bitcoinlib.keys.HDKey.from_seed(seed)
+#     flg = False
+#     const = "m/44'/0'/0'/0/"
+#     for k in range(n):
+#         b0=b.subkey_for_path(const + str(k))
+#         flg = check_address(b0.address())
+#         if flg == True:
+#             break
+# #    b0=b.subkey_for_path("m/44'/0'/0'/0/0")
+# #    b0.address()
+# #    b0.hash160.hex()
+# #    b0.private_hex
+# #    b1=b.subkey_for_path("m/44'/0'/0'/0/1")
+# #    b2=b.subkey_for_path("m/44'/0'/0'/0/2")
+# #    b3=b.subkey_for_path("m/44'/0'/0'/0/3")
+# #    b4=b.subkey_for_path("m/44'/0'/0'/0/4")
+#     return flg
+# =============================================================================
+
+
+def do_work_loop(entropy_bits):
+    mnem = entropy_bits_to_mnemonic(entropy_bits)
+    seed = mnem_to_seed(mnem)
+#    flg = seed_to_privatekey(seed,derivation_total_path_to_check)
+    pvk = bip39seed_to_private_key(seed)
+    addr = bit.Key.from_bytes(pvk).address
+    flg = check_address(addr)
+    return mnem, flg, addr
+
+###############################################################################
+# Things which can be changed in code
+entropy_bits = 128                      # [128, 160, 192, 224, 256]
+derivation_total_path_to_check = 1      # default = 1
+###############################################################################
+def hunt_BTC_mnemonics(cores='all'):  # pragma: no cover
+
+    available_cores = cpu_count()
+
+    if cores == 'all':
+        cores = available_cores
+    elif 0 < int(cores) <= available_cores:
+        cores = int(cores)
+    else:
+        cores = 1
+
+    counter = Value('i')
+    match = Event()
+    queue = Queue()
+
+    workers = []
+    for r in range(cores):
+        p = Process(target=generate_mnem_address_pairs, args=(counter, match, queue, r))
+        workers.append(p)
+        p.start()
+
+    for worker in workers:
+        worker.join()
+    
+    keys_generated = 0
+    while True:
+        time.sleep(1)
+        current = counter.value
+        if current == keys_generated:
+            if current == 0:
+                continue
+            break
+        keys_generated = current
+        s = 'Total Mnemonics generated: {}\r'.format(keys_generated)
+
+        sys.stdout.write(s)
+        sys.stdout.flush()
+
+    mnem_words, address = queue.get()
+    print('\n\nFinal Mnemonics Words (English): ', mnem_words)
+    print('BTC Address: {}'.format(address))
+
+#==============================================================================
+def generate_mnem_address_pairs(counter, match, queue, r):
+    st = time.time()
+    print('Starting thread: ', r)
+    k = 1
+    while True:
+        if match.is_set():
+            return
+
+        with counter.get_lock():
+            counter.value += 1
+            
+        mnem, flg, addr = do_work_loop(entropy_bits)
+        
+        if k % screen_print_after_keys == 0:
+#            print('  {:0.2f} Keys/s    :: Total Key Searched: {}'.format(k/(time.time() - st), k), end='\n')
+            print('[+] Total Keys Checked : {0}  [ Speed : {1:.2f} Keys/s ]  Current words: {2}'.format(counter.value, counter.value/(time.time() - st), mnem))
+            
+        if flg == True:
+            match.set()
+            queue.put_nowait((mnem, addr))
+            return
+        
+        k += 1
+
+###############################################################################
+if __name__ == '__main__':
+    print('[+] Starting.........Wait.....')
+    print('[+] Loaded ' + str(len(btc_list)) +' address from file:' + fl)
+    hunt_BTC_mnemonics(cores=4)
 <p align="center">
   <img src="aio/src/assets/images/logos/angular/angular_renaissance.png" alt="angular-logo" width="120px" height="120px"/>
   <br>
